@@ -2,31 +2,6 @@ import cv2
 import numpy as np
 
 
-def nothing(*arg):
-    pass
-
-
-cv2.namedWindow("result", cv2.WINDOW_NORMAL)
-cv2.namedWindow("settings", cv2.WINDOW_NORMAL)
-cv2.namedWindow("original", cv2.WINDOW_NORMAL)
-
-# Устанавливаем размеры окон
-cv2.resizeWindow("result", 800, 600)
-cv2.resizeWindow("original", 800, 600)
-cv2.resizeWindow("settings", 800, 600)  # Увеличиваем окно настроек
-
-# Создаем трекбары для цветового диапазона
-cv2.createTrackbar('h1', 'settings', 0, 180, nothing)
-cv2.createTrackbar('s1', 'settings', 0, 255, nothing)
-cv2.createTrackbar('v1', 'settings', 0, 255, nothing)
-cv2.createTrackbar('h2', 'settings', 180, 180, nothing)
-cv2.createTrackbar('s2', 'settings', 255, 255, nothing)
-cv2.createTrackbar('v2', 'settings', 255, 255, nothing)
-
-# Создаем трекбары для морфологических операций
-cv2.createTrackbar('Erosion', 'settings', 0, 20, nothing)
-cv2.createTrackbar('Dilation', 'settings', 0, 20, nothing)
-cv2.createTrackbar('Kernel Size', 'settings', 3, 15, nothing)
 
 # Создаем объект VideoCapture вне цикла
 cap = cv2.VideoCapture(0)
