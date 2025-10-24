@@ -1,0 +1,193 @@
+import cv2
+import numpy as np
+
+class ArucoDetector:
+    def __init__(self, camera_matrix=None, dist_coeffs=None, marker_length=0.05):
+        self.marker_length = marker_length
+        self.camera_matrix = camera_matrix
+        self.dist_coeffs = dist_coeffs if dist_coeffs is not None else np.zeros(5, dtype=np.float32)
+
+        self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
+        self.detector_params = cv2.aruco.DetectorParameters()
+        self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.detector_params)
+
+        self.marker_obj_points = np.array([
+            [-marker_length / 2,  marker_length / 2, 0],
+            [ marker_length / 2,  marker_length / 2, 0],
+            [ marker_length / 2, -marker_length / 2, 0],
+            [-marker_length / 2, -marker_length / 2, 0]
+        ], dtype=np.float32)
+
+        # Хранение последних данных по ID
+        self.last_pose = {}
+
+    def calibrate_camera(self, images, chessboard_size=(9, 6), square_size=0.025):
+        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+        objp = np.zeros((chessboard_size[0] * chessboard_size[1], 3), np.float32)
+        objp[:, :2] = np.mgrid[0:chessboard_size[0], 0:chessboard_size[1]].T.reshape(-1, 2)
+        objp *= square_size
+
+        objpoints = []
+        imgpoints = []
+
+        for img in images:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            ret, corners = cv2.findChessboardCorners(gray, chessboard_size, None)
+            if ret:
+                objpoints.append(objp)
+                refined = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+                imgpoints.append(refined)
+
+        if not objpoints:
+            raise ValueError("Не удалось найти шахматную доску ни на одном изображении")
+
+        ret, self.camera_matrix, self.dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(
+            objpoints, imgpoints, gray.shape[::-1], None, None
+        )
+        return ret
+
+    def detect_markers(self, image):
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        corners, ids, rejected = self.detector.detectMarkers(gray)
+        return corners, ids, rejected
+
+    def estimate_pose(self, corners, ids):
+        if ids is None or len(ids) == 0:
+            return [], []
+
+        rvecs = []
+        tvecs = []
+
+        for corner in corners:
+            img_points = corner.reshape((4, 2))
+            success, rvec, tvec = cv2.solvePnP(
+                self.marker_obj_points,
+                img_points,
+                self.camera_matrix,
+                self.dist_coeffs,
+                flags=cv2.SOLVEPNP_IPPE_SQUARE
+            )
+            if success:
+                rvecs.append(rvec)
+                tvecs.append(tvec)
+            else:
+                rvecs.append(np.zeros((3, 1)))
+                tvecs.append(np.zeros((3, 1)))
+
+        return rvecs, tvecs
+
+    def draw_detection(self, image, corners, ids, rvecs=None, tvecs=None):
+        output = image.copy()
+        current_ids = set()
+
+        if ids is not None:
+            cv2.aruco.drawDetectedMarkers(output, corners, ids)
+            for i, marker_id in enumerate(ids.flatten()):
+                current_ids.add(int(marker_id))
+                if rvecs is not None and tvecs is not None:
+                    self.last_pose[int(marker_id)] = (rvecs[i].copy(), tvecs[i].copy())
+
+        # Рисуем оси для последних известных поз, даже если маркер пропал
+        for marker_id, (rvec, tvec) in self.last_pose.items():
+            if marker_id not in current_ids:
+                # Не рисуем рамку, только оси
+                pass
+            cv2.drawFrameAxes(
+                output,
+                self.camera_matrix,
+                self.dist_coeffs,
+                rvec,
+                tvec,
+                self.marker_length * 0.5
+            )
+
+        return output
+
+    def get_marker_pose_info(self, rvecs, tvecs, ids):
+        pose_info = {}
+        if ids is not None:
+            for i, marker_id in enumerate(ids.flatten()):
+                rvec = rvecs[i]
+                tvec = tvecs[i]
+
+                rvec_flat = rvec.flatten()
+                tvec_flat = tvec.flatten()
+
+                rmat, _ = cv2.Rodrigues(rvec)
+                distance = np.linalg.norm(tvec_flat)
+
+                pose_info[int(marker_id)] = {
+                    'position': tvec_flat,
+                    'rotation_matrix': rmat,
+                    'distance': distance,
+                    'rotation_vector': rvec_flat,
+                    'translation_vector': tvec_flat
+                }
+        return pose_info
+
+
+def main():
+    detector = ArucoDetector(marker_length=0.05)
+
+    if detector.camera_matrix is None:
+        h, w = 480, 640
+        focal_length = max(h, w)
+        detector.camera_matrix = np.array([
+            [focal_length, 0, w / 2],
+            [0, focal_length, h / 2],
+            [0, 0, 1]
+        ], dtype=np.float32)
+        detector.dist_coeffs = np.zeros(5, dtype=np.float32)
+
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Ошибка: не удалось открыть камеру")
+        return
+
+    print("Нажмите 'q' или 'ESC' для выхода, 's' для сохранения изображения")
+
+    last_print_time = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        corners, ids, _ = detector.detect_markers(frame)
+        rvecs, tvecs = [], []
+        if ids is not None:
+            rvecs, tvecs = detector.estimate_pose(corners, ids)
+
+        result_image = detector.draw_detection(frame, corners, ids, rvecs, tvecs)
+
+        current_time = cv2.getTickCount()
+        if (current_time - last_print_time) / cv2.getTickFrequency() > 1.0:
+            # Всегда выводим последние известные позы
+            all_ids = set(detector.last_pose.keys())
+            if all_ids:
+                for marker_id in sorted(all_ids):
+                    rvec, tvec = detector.last_pose[marker_id]
+                    pos = tvec.flatten()
+                    dist = np.linalg.norm(pos)
+                    print(f"Маркер {marker_id}: Позиция ({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}), Дистанция: {dist:.2f} м")
+            last_print_time = current_time
+
+        cv2.imshow('ArUco Detection', result_image)
+        key = cv2.waitKey(1)
+
+        if cv2.getWindowProperty('ArUco Detection', cv2.WND_PROP_VISIBLE) < 1:
+            break
+
+        if key in (ord('q'), ord('Q'), 27):
+            break
+        
+        elif key in (ord('s'), ord('S')):
+            filename = f'aruco_{int(cv2.getTickCount())}.jpg'
+            cv2.imwrite(filename, result_image)
+            print(f"Сохранено: {filename}")
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
