@@ -333,6 +333,9 @@ class MultiTaskVisionSystem:
         print("System stopped")
 
 
+
+
+
 def main():
     # Check GPU availability
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
