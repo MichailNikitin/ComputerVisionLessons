@@ -1,0 +1,9 @@
+camera_id: 0
+marker_length: 0.05
+aruco_dict: DICT_5X5_50
+calibration_file: C:\Users\student\Desktop\artHzBan\camera_calibration.npz
+
+detector_params:
+  cornerRefinementMethod: 2
+  adaptiveThreshWinSizeMin: 3
+  adaptiveThreshWinSizeMax: 23
