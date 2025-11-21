@@ -36,7 +36,8 @@ while True:
 
     # накладываем фильтр на кадр в модели HSV
     thresh = cv2.inRange(hsv, h_min, h_max)
-    res = cv2.bitwise_and(hsv, hsv, mask=thresh)
+    col = cv2.bitwise_and(hsv, hsv, mask=thresh)
+    res = cv2.cvtColor(col, cv2.COLOR_HSV2BGR, col)
 
     cv2.imshow('result', thresh)
     cv2.imshow('mask', res)
