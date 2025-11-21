@@ -1,4 +1,4 @@
-#Нынешняя калибровка для определения коричневого щебня: min(0;68;0) max(255;255;189)
+#Нынешняя калибровка для определения коричневого щебня: min(21;56;0) max(45;255;193)
 import cv2
 import numpy as np
 
@@ -12,11 +12,11 @@ cv2.namedWindow("settings")  # создаем окно настроек
 cap = cv2.VideoCapture(1)
 # создаем 6 бегунков для настройки начального и конечного цвета фильтра
 cv2.createTrackbar('h_min', 'settings', 0, 255, nothing)
-cv2.createTrackbar('s_min', 'settings', 0, 255, nothing)
+cv2.createTrackbar('s_min', 'settings', 68, 255, nothing)
 cv2.createTrackbar('v_min', 'settings', 0, 255, nothing)
 cv2.createTrackbar('h_max', 'settings', 255, 255, nothing)
 cv2.createTrackbar('s_max', 'settings', 255, 255, nothing)
-cv2.createTrackbar('v_max', 'settings', 255, 255, nothing)
+cv2.createTrackbar('v_max', 'settings', 189, 255, nothing)
 crange = [0, 0, 0, 0, 0, 0]
 
 while True:
