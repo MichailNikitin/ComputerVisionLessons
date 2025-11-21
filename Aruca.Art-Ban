@@ -7,7 +7,10 @@ from scipy.spatial.transform import Rotation as R
 
 
 class ArucoDetector:
+    # -- Основной класс для детекции ArUco-маркеров и оценки их 6D-позы (положение + ориентация)
+
     def __init__(self, config_path: str):
+        # -- Инициализация: загрузка конфигурации, калибровки камеры и настройка детектора
         if not os.path.exists(config_path):
             raise FileNotFoundError(f"Конфигурационный файл не найден: {config_path}")
 
@@ -30,14 +33,14 @@ class ArucoDetector:
             else:
                 print(f"⚠️ Неизвестный параметр детектора: '{param_name}'")
 
-        # 🔍 Автоматический путь к калибровке в той же папке, что и config.yaml
+        # -- Ищем файл калибровки в той же папке, где лежит config.yaml
         config_dir = os.path.dirname(os.path.abspath(config_path))
         calibration_file = os.path.join(config_dir, "camera_calibration_good.npz")
 
         if not os.path.exists(calibration_file):
             raise FileNotFoundError(f"Файл калибровки не найден: {calibration_file}")
 
-        with np.load(calibration_file) as data:  # ← ВАЖНО: 'data' после 'as'
+        with np.load(calibration_file) as data:
             self.camera_matrix = data['camera_matrix'].astype(np.float32)
             self.dist_coeffs = data['dist_coeffs'].astype(np.float32)
             if self.dist_coeffs.ndim == 2:
@@ -45,6 +48,7 @@ class ArucoDetector:
 
         self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.detector_params)
 
+        # -- 3D-координаты углов маркера в его локальной системе координат (Z=0)
         half = self.marker_length / 2
         self.marker_obj_points = np.array([
             [-half,  half, 0],
@@ -53,9 +57,11 @@ class ArucoDetector:
             [-half, -half, 0]
         ], dtype=np.float32)
 
+        # -- Кэш последних поз маркеров (даже если сейчас не видны)
         self.last_pose: Dict[int, Dict[str, Any]] = {}
 
     def detect(self, image: np.ndarray):
+        # -- Детекция маркеров на изображении (возвращает углы и ID)
         if image is None or image.size == 0:
             return [], None
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -63,6 +69,7 @@ class ArucoDetector:
         return corners, ids
 
     def estimate_pose(self, corners, ids):
+        # -- Оценка 3D-позы каждого маркера с помощью solvePnP
         if ids is None or len(ids) == 0 or len(corners) != len(ids):
             return [], []
 
@@ -74,7 +81,7 @@ class ArucoDetector:
                 img_points,
                 self.camera_matrix,
                 self.dist_coeffs,
-                flags=cv2.SOLVEPNP_IPPE_SQUARE
+                flags=cv2.SOLVEPNP_IPPE_SQUARE  # -- Оптимизированный метод для квадратных маркеров
             )
             if success:
                 rvecs.append(rvec)
@@ -85,6 +92,7 @@ class ArucoDetector:
         return rvecs, tvecs
 
     def get_pos(self, image: np.ndarray) -> Dict[int, Dict[str, Any]]:
+        # -- Полная обработка кадра: детекция → оценка позы → обновление кэша
         corners, ids = self.detect(image)
         rvecs, tvecs = self.estimate_pose(corners, ids)
 
@@ -95,7 +103,7 @@ class ArucoDetector:
                 tvec = tvecs[i].copy()
                 rmat, _ = cv2.Rodrigues(rvec)
                 rot = R.from_matrix(rmat)
-                euler = rot.as_euler('xyz', degrees=True)
+                euler = rot.as_euler('xyz', degrees=True)  # -- Roll, Pitch, Yaw в градусах
 
                 self.last_pose[marker_id] = {
                     'position': tvec.flatten(),
@@ -105,6 +113,7 @@ class ArucoDetector:
                     'valid': True
                 }
 
+        # -- Помечаем потерянные маркеры как недействительные
         detected_ids = set(ids.flatten()) if ids is not None else set()
         for mid in self.last_pose:
             if mid not in detected_ids:
@@ -113,6 +122,7 @@ class ArucoDetector:
         return self.last_pose.copy()
 
     def draw(self, image: np.ndarray) -> np.ndarray:
+        # -- Визуализация: рамки, ID, расстояние и углы поверх кадра
         corners, ids = self.detect(image)
         rvecs, tvecs = self.estimate_pose(corners, ids)
         output = image.copy()
@@ -130,6 +140,7 @@ class ArucoDetector:
 
                 dist = pose['distance']
                 euler = pose['euler_angles']
+                # -- Подготавливаем многострочную метку
                 label = f"ID{marker_id}\nD={dist:.2f}m\nR={euler[0]:.0f}° P={euler[1]:.0f}° Y={euler[2]:.0f}°"
                 y0 = cy - 60
                 for j, line in enumerate(label.split('\n')):
@@ -159,9 +170,8 @@ if __name__ == "__main__":
 
     print("✅ Запущено. Нажмите ESC для выхода.")
     frame_count = 0
-    UPDATE_INTERVAL = 10  # обновлять консоль каждые 10 кадров
+    UPDATE_INTERVAL = 10  # -- Обновлять консоль каждые N кадров (чтобы не спамить)
 
-    # Для отслеживания изменений (опционально)
     last_known_ids = set()
 
     while True:
@@ -173,12 +183,11 @@ if __name__ == "__main__":
         all_poses = detector.get_pos(frame)
         output_frame = detector.draw(frame)
 
-        # --- Обновляем консоль раз в N кадров ---
+        # -- Умный вывод в консоль: только при изменении набора маркеров
         frame_count += 1
         if frame_count % UPDATE_INTERVAL == 0:
-            current_ids = set(all_poses.keys())
+            current_ids = set(all_poses.keys()) if all_poses else set()
             if current_ids != last_known_ids:
-                # Выводим заголовок только при изменении набора ID
                 print("\n" + "="*50)
                 print("Обнаружены маркеры:" if current_ids else "Нет маркеров")
                 last_known_ids = current_ids
@@ -196,7 +205,6 @@ if __name__ == "__main__":
             else:
                 print("Нет данных о маркерах")
 
-        # --- Показ видео ---
         cv2.imshow("Aruco Tracker", output_frame)
 
         if cv2.waitKey(1) == 27:  # ESC
