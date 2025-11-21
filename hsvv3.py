@@ -1,23 +1,49 @@
-import cv2 as cv
+import cv2
 import numpy as np
-cap = cv.VideoCapture(1)
-while (1):
-    # Take each frame
-    _, frame = cap.read()
-    # Convert BGR to HSV
-    hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
-    # define range of blue color in HSV
-    lower_blue = np.array([10, 100, 20])
-    upper_blue = np.array([20, 255, 200])
-    # Threshold the HSV image to get only blue colors
-    mask = cv.inRange(hsv, lower_blue, upper_blue)
-    # Bitwise-AND mask and original image
-    res = cv.bitwise_and(frame, frame, mask=mask)
-    cv.imshow('frame', frame)
-    cv.imshow('mask', mask)
-    cv.imshow('res', res)
-    k = cv.waitKey(5) & 0xFF
-    if k == 27:
+
+if __name__ == '__main__':
+    def nothing(*arg):
+        pass
+
+cv2.namedWindow("result")  # создаем главное окно
+cv2.namedWindow("settings")  # создаем окно настроек
+
+cap = cv2.VideoCapture(1)
+# создаем 6 бегунков для настройки начального и конечного цвета фильтра
+cv2.createTrackbar('h_min', 'settings', 0, 255, nothing)
+cv2.createTrackbar('s_min', 'settings', 0, 255, nothing)
+cv2.createTrackbar('v_min', 'settings', 0, 255, nothing)
+cv2.createTrackbar('h_max', 'settings', 255, 255, nothing)
+cv2.createTrackbar('s_max', 'settings', 255, 255, nothing)
+cv2.createTrackbar('v_max', 'settings', 255, 255, nothing)
+crange = [0, 0, 0, 0, 0, 0]
+
+while True:
+    flag, img = cap.read()
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+    # считываем значения бегунков
+    h1 = cv2.getTrackbarPos('h_min', 'settings')
+    s1 = cv2.getTrackbarPos('s_min', 'settings')
+    v1 = cv2.getTrackbarPos('v_min', 'settings')
+    h2 = cv2.getTrackbarPos('h_max', 'settings')
+    s2 = cv2.getTrackbarPos('s_max', 'settings')
+    v2 = cv2.getTrackbarPos('v_max', 'settings')
+
+    # формируем начальный и конечный цвет фильтра
+    h_min = np.array((h1, s1, v1), np.uint8)
+    h_max = np.array((h2, s2, v2), np.uint8)
+
+    # накладываем фильтр на кадр в модели HSV
+    thresh = cv2.inRange(hsv, h_min, h_max)
+    res = cv2.bitwise_and(hsv, hsv, mask=thresh)
+
+    cv2.imshow('result', thresh)
+    cv2.imshow('mask', res)
+
+    ch = cv2.waitKey(5)
+    if ch == 27:
         break
 
-cv.destroyAllWindows()
+cap.release()
+cv2.destroyAllWindows()
